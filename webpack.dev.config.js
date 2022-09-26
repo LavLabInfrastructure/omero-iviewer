@@ -2,7 +2,6 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const {AureliaPlugin} = require('aurelia-webpack-plugin');
 const ProvidePlugin = require('webpack/lib/ProvidePlugin');
-
 module.exports = {
   entry: {
     main: [
@@ -48,21 +47,22 @@ module.exports = {
   },
   devServer: {
     port: 8080,
+    host:'0.0.0.0',
     proxy: {
         '/iviewer/**': {
-            target: 'http://localhost:4080'
+            target: 'http://localhost:80'
         },
         '/api/**': {
-            target: 'http://localhost:4080'
+            target: 'http://localhost:80'
         },
         '/webgateway/**': {
-            target: 'http://localhost:4080'
+            target: 'http://localhost:80'
         },
         '/webclient/**': {
-            target: 'http://localhost:4080'
+            target: 'http://localhost:80'
         },
         '/static/**': {
-            target: 'http://localhost:4080'
+            target: 'http://localhost:80'
         }
     }
   }

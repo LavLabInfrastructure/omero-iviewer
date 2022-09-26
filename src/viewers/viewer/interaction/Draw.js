@@ -26,7 +26,8 @@ import {unByKey} from 'ol/Observable';
 import Collection from 'ol/Collection';
 import OlDraw from 'ol/interaction/Draw';
 import {noModifierKeys,
-    primaryAction} from 'ol/events/condition';
+    primaryAction,
+    shiftKeyOnly} from 'ol/events/condition';
 import Ellipse from '../geom/Ellipse';
 import Label from '../geom/Label';
 import Line from '../geom/Line';
@@ -302,6 +303,12 @@ class Draw {
             condition: function(e) {
                 // ignore right clicks (from context)
                 return noModifierKeys(e) && primaryAction(e);
+            },
+            freehandCondition: function(e) {
+                if (e.originalEvent.pointerType == "pen"){
+                        return true
+                }
+                return shiftKeyOnly(e)
             },
             geometryFunction:
                 typeof(geometryFunction) === 'function' ?
