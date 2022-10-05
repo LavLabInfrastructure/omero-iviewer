@@ -377,7 +377,7 @@ export const AVAILABLE_VIEWER_INTERACTIONS = {
          "defaults": true, "enabled": true, "links" : []},
     "pinchRotate" :
         {"clazz" : PinchRotate,
-         "options": {}, "defaults": true, "enabled": false,
+         "options": {}, "defaults": true, "enabled": true,
          "links" : ["rotate"]},
     "shiftRotate" :
         {"clazz" : RotateInteraction,

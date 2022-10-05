@@ -49,6 +49,19 @@ import {toJsonObject,
     convertSignedIntegerToColorObject} from '../utils/Conversion';
 
 /**
+ * penOnly is not exported from ol/events/condition
+ * so we redefine it here
+ */
+const penOnly = (e) => {
+    if(e.originalEvent){
+        if (e.originalEvent.pointerType == "pen"){
+            return true
+        }
+    }
+    return false
+}
+
+/**
  * DrawEventType is not exported from ol/interaction/Draw
  * so we have to redefine it here:
  */
@@ -294,26 +307,39 @@ class Draw {
             self.endDrawingInteraction(false);
         };
 
+        // check control scheme
+        let controlProfile="DEFAULT"
+        try{
+            controlProfile = this.regions_.viewer_.initParams_.CONTROL_PROFILE.toUpperCase()
+        } catch {
+            console.log(`Error setting control profile. Using default settings...`)
+        }
+        let drawCondition = (e)=>{return noModifierKeys(e) && primaryAction(e)}
+        let freeDrawCondition = (e)=>{return shiftKeyOnly(e)}
+        
+        if (controlProfile == "LLAB"){
+            // seperate 'if' to avoid warning message w/ llab profile
+            if (this.abort_polyline_ == false){
+                drawCondition = (e)=>{return penOnly(e) && primaryAction(e) || noModifierKeys(e) && primaryAction(e)}
+                freeDrawCondition = (e)=>{return penOnly(e) || shiftKeyOnly(e)}
+            }
+        } else if (controlProfile != "DEFAULT"){
+            console.log(`Despite setting a control profile (${controlProfile}), the default control profile was used`)
+        } 
+        let drawSettings = {
+            style: this.default_style_function_,
+            type: ol_shape,
+            condition: drawCondition,
+            freehandCondition: freeDrawCondition,
+            geometryFunction: 
+            typeof(geometryFunction) === 'function' ?
+                geometryFunction : null
+        }
+        
         // create a new draw interaction removing possible existing ones first
         if (this.ol_draw_)
             this.regions_.viewer_.viewer_.removeInteraction(this.ol_draw_);
-        this.ol_draw_ = new DrawWithPopup({
-            style: this.default_style_function_,
-            type: ol_shape,
-            condition: function(e) {
-                // ignore right clicks (from context)
-                return noModifierKeys(e) && primaryAction(e);
-            },
-            freehandCondition: function(e) {
-                if (e.originalEvent.pointerType == "pen"){
-                        return true
-                }
-                return shiftKeyOnly(e)
-            },
-            geometryFunction:
-                typeof(geometryFunction) === 'function' ?
-                    geometryFunction : null
-        });
+        this.ol_draw_ = new DrawWithPopup(drawSettings);
 
         // add start and end handlers for the drawing action
         this.regions_.viewer_.viewer_.addInteraction(this.ol_draw_);
