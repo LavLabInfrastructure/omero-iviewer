@@ -317,15 +317,15 @@ class Draw {
         let drawCondition = (e)=>{return noModifierKeys(e) && primaryAction(e)}
         let freeDrawCondition = (e)=>{return shiftKeyOnly(e)}
         
-        if (controlProfile == "LLAB"){
-            // seperate 'if' to avoid warning message w/ llab profile
+        // if (controlProfile == "LLAB"){
+        //     // seperate 'if' to avoid warning message w/ llab profile
             if (this.abort_polyline_ == false){
                 drawCondition = (e)=>{return penOnly(e) && primaryAction(e) || noModifierKeys(e) && primaryAction(e)}
                 freeDrawCondition = (e)=>{return penOnly(e) || shiftKeyOnly(e)}
             }
-        } else if (controlProfile != "DEFAULT"){
-            console.log(`Despite setting a control profile (${controlProfile}), the default control profile was used`)
-        } 
+        // } else if (controlProfile != "DEFAULT"){
+        //     console.log(`Despite setting a control profile (${controlProfile}), the default control profile was used`)
+        // } 
         let drawSettings = {
             style: this.default_style_function_,
             type: ol_shape,
