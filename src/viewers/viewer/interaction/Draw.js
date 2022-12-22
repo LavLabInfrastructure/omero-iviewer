@@ -14,7 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-//
+//6
 
 import PluggableMap from 'ol/PluggableMap';
 import Feature from 'ol/Feature';
@@ -504,7 +504,7 @@ class Draw {
             // for sketching arrows
             if (geom instanceof Line && geom.has_end_arrow_) {
                 var lineStroke = this.default_style_.getStroke();
-                var strokeWidth = lineStroke.getWidth() || 3;
+                var strokeWidth = lineStroke.getWidth() || 1;
                 var arrowBaseWidth = 15 * resolution;
 
                 var arrowStyle =
