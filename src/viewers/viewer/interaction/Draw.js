@@ -504,7 +504,7 @@ class Draw {
             // for sketching arrows
             if (geom instanceof Line && geom.has_end_arrow_) {
                 var lineStroke = this.default_style_.getStroke();
-                var strokeWidth = lineStroke.getWidth() || 1;
+                var strokeWidth = lineStroke.getWidth() || 3;
                 var arrowBaseWidth = 15 * resolution;
 
                 var arrowStyle =
