@@ -212,7 +212,7 @@ class Viewer extends OlObject {
          * Defauls to true
          * @type {boolean}
          */
-        this.enable_shape_popup = true;
+        this.enable_shape_popup = false;
 
         /**
          * the 'viewer state', i.e. the controls and interactions that were added
