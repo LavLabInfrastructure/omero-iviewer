@@ -36,19 +36,18 @@ jobs:
           fi
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
 
-      - name: Check if release already exists in fork
-        id: check_fork_release
+      - name: Check if tag exists in fork
+        id: check_fork_tag
         run: |
           exists=$(git tag -l "${{ env.LATEST_TAG }}")
           if [ -z "$exists" ]; then
-            echo "RELEASE_EXISTS=false" >> $GITHUB_ENV
+            echo "exists=false" >> $GITHUB_OUTPUT
           else
-            echo "RELEASE_EXISTS=true" >> $GITHUB_ENV
+            echo "exists=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Merge upstream release tag if not already released
-        if: env.RELEASE_EXISTS == 'false'
-        id: merge
+      - name: Merge upstream tag if not already present
+        if: steps.check_fork_tag.outputs.exists == 'false'
         run: |
           git fetch upstream tag ${{ env.LATEST_TAG }}
           git checkout master
