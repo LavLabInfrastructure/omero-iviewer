@@ -23,13 +23,14 @@ jobs:
       - name: Add upstream
         run: git remote add upstream https://github.com/ome/omero-iviewer.git
 
-      - name: Fetch all tags from upstream
-        run: git fetch upstream --tags
-
       - name: Get latest upstream release tag
         id: get_upstream_release
         run: |
           latest_tag=$(curl -s https://api.github.com/repos/ome/omero-iviewer/releases/latest | jq -r .tag_name)
+          if [ "$latest_tag" = "null" ] || [ -z "$latest_tag" ]; then
+            echo "No upstream release found. Exiting."
+            exit 0
+          fi
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
 
       - name: Check if release already exists in fork
