@@ -5,6 +5,10 @@ on:
     - cron: '0 2 * * *' # Daily at 2 AM UTC
   workflow_dispatch:
 
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   sync-tag:
     runs-on: ubuntu-latest
@@ -23,9 +27,13 @@ jobs:
       - name: Add upstream
         run: git remote add upstream https://github.com/ome/omero-iviewer.git
 
-      - name: Fetch all tags from upstream
-        run: git fetch upstream --tags
+      - name: Detect default branch
+        id: detect_branch
+        run: |
+          default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD | cut -d/ -f2)
+          echo "DEFAULT_BRANCH=${default_branch:-master}" >> $GITHUB_ENV
 
+      # Do not fetch --tags; use ls-remote so we don't create local tags.
       - name: Get latest upstream tag
         id: get_upstream_tag
         run: |
@@ -36,53 +44,78 @@ jobs:
           fi
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
 
-      - name: Check if tag exists in fork
+      # Check if tag exists on origin (your fork), not locally
+      - name: Check if tag exists on origin
         id: check_fork_tag
         run: |
-          exists=$(git tag -l "${{ env.LATEST_TAG }}")
-          if [ -z "$exists" ]; then
-            echo "exists=false" >> $GITHUB_OUTPUT
-          else
+          if git ls-remote --tags origin "${{ env.LATEST_TAG }}" | grep -q "${{ env.LATEST_TAG }}$"; then
             echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Debug tag existence
-        run: echo "Tag exists: ${{ steps.check_fork_tag.outputs.exists }}"
 
       - name: Merge upstream tag if not present
         if: steps.check_fork_tag.outputs.exists == 'false'
         id: merge
         run: |
-          git checkout master
-          git merge ${{ env.LATEST_TAG }} --no-ff --allow-unrelated-histories
+          git fetch upstream tag "${{ env.LATEST_TAG }}"
+          git checkout "${{ env.DEFAULT_BRANCH }}"
+          # Merge the upstream tag into your default branch
+          git merge --no-ff --no-edit "refs/tags/${{ env.LATEST_TAG }}"
         continue-on-error: true
 
-      - name: Check merge result
-        if: steps.check_fork_tag.outputs.exists == 'false'
+      - name: Push branch if merge succeeded
+        if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'success'
+        run: git push origin "${{ env.DEFAULT_BRANCH }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Try to reuse upstream release notes if they exist; otherwise, generate notes
+      - name: Try to fetch upstream release notes
+        if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'success'
         run: |
-          if [ "${{ steps.merge.outcome }}" = "failure" ]; then
-            echo "MERGE_FAILED=true" >> $GITHUB_ENV
+          notes=$(curl -fsSL -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/ome/omero-iviewer/releases/tags/${{ env.LATEST_TAG }}" \
+            | jq -r '.body // empty' || true)
+          if [ -n "$notes" ]; then
+            echo "RELEASE_NOTES_PRESENT=true" >> $GITHUB_ENV
+            printf "RELEASE_NOTES<<'EOF'\n%s\nEOF\n" "$notes" >> $GITHUB_ENV
           else
-            echo "MERGE_FAILED=false" >> $GITHUB_ENV
+            echo "RELEASE_NOTES_PRESENT=false" >> $GITHUB_ENV
           fi
 
-      - name: Push changes and tag if merge succeeded
-        if: steps.check_fork_tag.outputs.exists == 'false' && env.MERGE_FAILED == 'false'
-        run: |
-          git push origin master
-          git tag ${{ env.LATEST_TAG }}
-          git push origin ${{ env.LATEST_TAG }}
+      # Create a release on your fork with the same tag name, pointing to your branch head
+      - name: Create release (reuse upstream notes)
+        if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'success' && env.RELEASE_NOTES_PRESENT == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.LATEST_TAG }}
+          target_commitish: ${{ env.DEFAULT_BRANCH }}
+          name: ${{ env.LATEST_TAG }}
+          body: ${{ env.RELEASE_NOTES }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release (generate notes)
+        if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'success' && env.RELEASE_NOTES_PRESENT == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.LATEST_TAG }}
+          target_commitish: ${{ env.DEFAULT_BRANCH }}
+          name: ${{ env.LATEST_TAG }}
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create issue if merge failed
-        if: steps.check_fork_tag.outputs.exists == 'false' && env.MERGE_FAILED == 'true'
+        if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'failure'
         uses: actions/github-script@v7
         with:
           script: |
             github.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: "Sync failed: Merge conflict for upstream tag ${{ env.LATEST_TAG }}",
-              body: "Automatic sync with upstream tag `${{ env.LATEST_TAG }}` failed due to merge conflicts. Please resolve manually.",
-              assignees: ["your-github
+              title: `Sync failed: Merge conflict for upstream tag ${process.env.LATEST_TAG}`,
+              body: `Automatic sync with upstream tag \`${process.env.LATEST_TAG}\` failed due to merge conflicts. Please resolve manually.`,
+              assignees: ["your-github-username"]
+            })
