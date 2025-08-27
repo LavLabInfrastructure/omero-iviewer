@@ -47,7 +47,7 @@ jobs:
         id: merge
         run: |
           git fetch upstream tag ${{ env.LATEST_TAG }}
-          git checkout main
+          git checkout master
           git merge ${{ env.LATEST_TAG }} --no-ff --allow-unrelated-histories
         continue-on-error: true
 
