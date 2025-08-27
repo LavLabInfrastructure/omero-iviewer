@@ -50,7 +50,7 @@ jobs:
         if: steps.check_fork_tag.outputs.exists == 'false'
         id: merge
         run: |
-          git checkout main  # Or your default branch
+          git checkout master
           git merge ${{ env.LATEST_TAG }} --no-ff --allow-unrelated-histories
         continue-on-error: true
 
@@ -66,7 +66,7 @@ jobs:
       - name: Push changes and tag if merge succeeded
         if: steps.check_fork_tag.outputs.exists == 'false' && env.MERGE_FAILED == 'false'
         run: |
-          git push origin main
+          git push origin master
           git tag ${{ env.LATEST_TAG }}
           git push origin ${{ env.LATEST_TAG }}
         env:
