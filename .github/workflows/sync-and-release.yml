@@ -1,4 +1,4 @@
-name: Sync Upstream Release
+name: Sync Upstream Tag
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  sync-release:
+  sync-tag:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout fork
@@ -46,25 +46,25 @@ jobs:
             echo "exists=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Merge upstream tag if not already present
+      - name: Merge upstream tag if not present
         if: steps.check_fork_tag.outputs.exists == 'false'
+        id: merge
         run: |
-          git fetch upstream tag ${{ env.LATEST_TAG }}
-          git checkout master
+          git checkout main  # Or your default branch
           git merge ${{ env.LATEST_TAG }} --no-ff --allow-unrelated-histories
         continue-on-error: true
 
       - name: Check merge result
-        if: env.RELEASE_EXISTS == 'false'
+        if: steps.check_fork_tag.outputs.exists == 'false'
         run: |
-          if [ $? -ne 0 ]; then
+          if [ "${{ steps.merge.outcome }}" = "failure" ]; then
             echo "MERGE_FAILED=true" >> $GITHUB_ENV
           else
             echo "MERGE_FAILED=false" >> $GITHUB_ENV
           fi
 
       - name: Push changes and tag if merge succeeded
-        if: env.RELEASE_EXISTS == 'false' && env.MERGE_FAILED == 'false'
+        if: steps.check_fork_tag.outputs.exists == 'false' && env.MERGE_FAILED == 'false'
         run: |
           git push origin main
           git tag ${{ env.LATEST_TAG }}
@@ -72,34 +72,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get upstream release notes
-        if: env.RELEASE_EXISTS == 'false' && env.MERGE_FAILED == 'false'
-        id: get_release_notes
-        run: |
-          notes=$(curl -s https://api.github.com/repos/ome/omero-iviewer/releases/latest | jq -r .body)
-          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
-          echo "$notes" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-      - name: Create release in fork
-        if: env.RELEASE_EXISTS == 'false' && env.MERGE_FAILED == 'false'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.LATEST_TAG }}
-          name: ${{ env.LATEST_TAG }}
-          body: ${{ env.RELEASE_NOTES }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Create issue if merge failed
-        if: env.RELEASE_EXISTS == 'false' && env.MERGE_FAILED == 'true'
+        if: steps.check_fork_tag.outputs.exists == 'false' && env.MERGE_FAILED == 'true'
         uses: actions/github-script@v7
         with:
           script: |
             github.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: "Sync failed: Merge conflict for upstream release ${{ env.LATEST_TAG }}",
-              body: "Automatic sync with upstream release `${{ env.LATEST_TAG }}` failed due to merge conflicts. Please resolve manually.",
-              assignees: ["barrettMCW"]
+              title: "Sync failed: Merge conflict for upstream tag ${{ env.LATEST_TAG }}",
+              body: "Automatic sync with upstream tag `${{ env.LATEST_TAG }}` failed due to merge conflicts. Please resolve manually.",
+              assignees: ["your-github-username"]
             })
