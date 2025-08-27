@@ -1,0 +1,69 @@
+name: Sync and Release Fork
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # Daily at 2 AM UTC
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/ORIGINAL_OWNER/ORIGINAL_REPO.git
+
+      - name: Fetch upstream
+        run: git fetch upstream
+
+      - name: Merge upstream changes
+        id: merge
+        run: |
+          git merge upstream/main --allow-unrelated-histories
+        continue-on-error: true
+
+      - name: Check merge result
+        id: check_merge
+        run: |
+          if [ "${{ steps.merge.outcome }}" = "failure" ]; then
+            echo "MERGE_FAILED=true" >> $GITHUB_ENV
+          else
+            echo "MERGE_FAILED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Push changes if merge succeeded
+        if: env.MERGE_FAILED == 'false'
+        run: git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release if merge succeeded
+        if: env.MERGE_FAILED == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "sync-$(date +'%Y%m%d%H%M%S')"
+          name: "Sync Release $(date +'%Y-%m-%d %H:%M:%S')"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create issue if merge failed
+        if: env.MERGE_FAILED == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: "Sync failed: Merge conflict",
+              body: "Automatic sync with upstream failed due to merge conflicts. Please resolve manually.",
+              assignees: ["your-github-username"]
+            })
