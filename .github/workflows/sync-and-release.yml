@@ -2,7 +2,7 @@ name: Sync Upstream Tag
 
 on:
   schedule:
-    - cron: '0 2 * * *' # Daily at 2 AM UTC
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +17,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
+          # Allow push with the runner token
+          persist-credentials: true
 
       - name: Set up Git
         run: |
@@ -33,8 +34,7 @@ jobs:
           default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD | cut -d/ -f2)
           echo "DEFAULT_BRANCH=${default_branch:-master}" >> $GITHUB_ENV
 
-      # Do not fetch --tags; use ls-remote so we don't create local tags.
-      - name: Get latest upstream tag
+      - name: Get latest upstream tag (no local tags created)
         id: get_upstream_tag
         run: |
           latest_tag=$(git ls-remote --tags upstream | awk -F/ '{print $3}' | grep -v '{}' | sort -V | tail -n1)
@@ -44,7 +44,6 @@ jobs:
           fi
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
 
-      # Check if tag exists on origin (your fork), not locally
       - name: Check if tag exists on origin
         id: check_fork_tag
         run: |
@@ -60,17 +59,13 @@ jobs:
         run: |
           git fetch upstream tag "${{ env.LATEST_TAG }}"
           git checkout "${{ env.DEFAULT_BRANCH }}"
-          # Merge the upstream tag into your default branch
           git merge --no-ff --no-edit "refs/tags/${{ env.LATEST_TAG }}"
         continue-on-error: true
 
       - name: Push branch if merge succeeded
         if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'success'
         run: git push origin "${{ env.DEFAULT_BRANCH }}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Try to reuse upstream release notes if they exist; otherwise, generate notes
       - name: Try to fetch upstream release notes
         if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'success'
         run: |
@@ -84,7 +79,6 @@ jobs:
             echo "RELEASE_NOTES_PRESENT=false" >> $GITHUB_ENV
           fi
 
-      # Create a release on your fork with the same tag name, pointing to your branch head
       - name: Create release (reuse upstream notes)
         if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'success' && env.RELEASE_NOTES_PRESENT == 'true'
         uses: softprops/action-gh-release@v2
@@ -93,8 +87,6 @@ jobs:
           target_commitish: ${{ env.DEFAULT_BRANCH }}
           name: ${{ env.LATEST_TAG }}
           body: ${{ env.RELEASE_NOTES }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create release (generate notes)
         if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'success' && env.RELEASE_NOTES_PRESENT == 'false'
@@ -104,8 +96,6 @@ jobs:
           target_commitish: ${{ env.DEFAULT_BRANCH }}
           name: ${{ env.LATEST_TAG }}
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create issue if merge failed
         if: steps.check_fork_tag.outputs.exists == 'false' && steps.merge.outcome == 'failure'
