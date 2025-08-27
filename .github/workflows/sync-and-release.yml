@@ -1,4 +1,4 @@
-name: Sync and Release Fork
+name: Sync Upstream Release
 
 on:
   schedule:
@@ -6,12 +6,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  sync:
+  sync-release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout fork
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Git
@@ -22,48 +23,80 @@ jobs:
       - name: Add upstream
         run: git remote add upstream https://github.com/ORIGINAL_OWNER/ORIGINAL_REPO.git
 
-      - name: Fetch upstream
-        run: git fetch upstream
+      - name: Fetch all tags from upstream
+        run: git fetch upstream --tags
 
-      - name: Merge upstream changes
+      - name: Get latest upstream release tag
+        id: get_upstream_release
+        run: |
+          latest_tag=$(curl -s https://api.github.com/repos/ORIGINAL_OWNER/ORIGINAL_REPO/releases/latest | jq -r .tag_name)
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+
+      - name: Check if release already exists in fork
+        id: check_fork_release
+        run: |
+          exists=$(git tag -l "${{ env.LATEST_TAG }}")
+          if [ -z "$exists" ]; then
+            echo "RELEASE_EXISTS=false" >> $GITHUB_ENV
+          else
+            echo "RELEASE_EXISTS=true" >> $GITHUB_ENV
+          fi
+
+      - name: Merge upstream release tag if not already released
+        if: env.RELEASE_EXISTS == 'false'
         id: merge
         run: |
-          git merge upstream/main --allow-unrelated-histories
+          git fetch upstream tag ${{ env.LATEST_TAG }}
+          git checkout main
+          git merge ${{ env.LATEST_TAG }} --no-ff --allow-unrelated-histories
         continue-on-error: true
 
       - name: Check merge result
-        id: check_merge
+        if: env.RELEASE_EXISTS == 'false'
         run: |
-          if [ "${{ steps.merge.outcome }}" = "failure" ]; then
+          if [ $? -ne 0 ]; then
             echo "MERGE_FAILED=true" >> $GITHUB_ENV
           else
             echo "MERGE_FAILED=false" >> $GITHUB_ENV
           fi
 
-      - name: Push changes if merge succeeded
-        if: env.MERGE_FAILED == 'false'
-        run: git push origin main
+      - name: Push changes and tag if merge succeeded
+        if: env.RELEASE_EXISTS == 'false' && env.MERGE_FAILED == 'false'
+        run: |
+          git push origin main
+          git tag ${{ env.LATEST_TAG }}
+          git push origin ${{ env.LATEST_TAG }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create release if merge succeeded
-        if: env.MERGE_FAILED == 'false'
+      - name: Get upstream release notes
+        if: env.RELEASE_EXISTS == 'false' && env.MERGE_FAILED == 'false'
+        id: get_release_notes
+        run: |
+          notes=$(curl -s https://api.github.com/repos/ORIGINAL_OWNER/ORIGINAL_REPO/releases/latest | jq -r .body)
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+          echo "$notes" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Create release in fork
+        if: env.RELEASE_EXISTS == 'false' && env.MERGE_FAILED == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "sync-$(date +'%Y%m%d%H%M%S')"
-          name: "Sync Release $(date +'%Y-%m-%d %H:%M:%S')"
+          tag_name: ${{ env.LATEST_TAG }}
+          name: ${{ env.LATEST_TAG }}
+          body: ${{ env.RELEASE_NOTES }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create issue if merge failed
-        if: env.MERGE_FAILED == 'true'
+        if: env.RELEASE_EXISTS == 'false' && env.MERGE_FAILED == 'true'
         uses: actions/github-script@v7
         with:
           script: |
             github.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: "Sync failed: Merge conflict",
-              body: "Automatic sync with upstream failed due to merge conflicts. Please resolve manually.",
+              title: "Sync failed: Merge conflict for upstream release ${{ env.LATEST_TAG }}",
+              body: "Automatic sync with upstream release `${{ env.LATEST_TAG }}` failed due to merge conflicts. Please resolve manually.",
               assignees: ["your-github-username"]
             })
