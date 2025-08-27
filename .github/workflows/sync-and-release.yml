@@ -21,7 +21,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Add upstream
-        run: git remote add upstream https://github.com/ORIGINAL_OWNER/ORIGINAL_REPO.git
+        run: git remote add upstream https://github.com/ome/omero-iviewer.git
 
       - name: Fetch all tags from upstream
         run: git fetch upstream --tags
@@ -29,7 +29,7 @@ jobs:
       - name: Get latest upstream release tag
         id: get_upstream_release
         run: |
-          latest_tag=$(curl -s https://api.github.com/repos/ORIGINAL_OWNER/ORIGINAL_REPO/releases/latest | jq -r .tag_name)
+          latest_tag=$(curl -s https://api.github.com/repos/ome/omero-iviewer/releases/latest | jq -r .tag_name)
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
 
       - name: Check if release already exists in fork
@@ -73,7 +73,7 @@ jobs:
         if: env.RELEASE_EXISTS == 'false' && env.MERGE_FAILED == 'false'
         id: get_release_notes
         run: |
-          notes=$(curl -s https://api.github.com/repos/ORIGINAL_OWNER/ORIGINAL_REPO/releases/latest | jq -r .body)
+          notes=$(curl -s https://api.github.com/repos/ome/omero-iviewer/releases/latest | jq -r .body)
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
           echo "$notes" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
@@ -98,5 +98,5 @@ jobs:
               repo: context.repo.repo,
               title: "Sync failed: Merge conflict for upstream release ${{ env.LATEST_TAG }}",
               body: "Automatic sync with upstream release `${{ env.LATEST_TAG }}` failed due to merge conflicts. Please resolve manually.",
-              assignees: ["your-github-username"]
+              assignees: ["barrettMCW"]
             })
