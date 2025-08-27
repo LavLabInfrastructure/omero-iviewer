@@ -1,4 +1,27 @@
-0.13.0 (June 2022)
+
+0.16.0 (February 2025)
+----------------------
+
+- Limit number of active channels ([#500](https://github.com/ome/omero-iviewer/pull/500))
+- Improve settings documentation ([#501](https://github.com/ome/omero-iviewer/pull/501))
+
+0.15.0 (November 2024)
+----------------------
+
+- Options to open viewer with left and right panels collapsed ([#482](https://github.com/ome/omero-iviewer/pull/482))
+- Improved support for flipped viewing (Thanks to [Michael Barrett](https://github.com/barrettMCW)) ([#484](https://github.com/ome/omero-iviewer/pull/484))
+- Dynamic loading of Lookup Tables from the server (Thanks to [Tom Boissonnet](https://github.com/Tom-TBT)) ([#485](https://github.com/ome/omero-iviewer/pull/485))
+- Fix Timestamp loading when some Z/C planes are missing (Thanks to [Tom Boissonnet](https://github.com/Tom-TBT)) ([#486](https://github.com/ome/omero-iviewer/pull/486))
+- Mobile layout for small screens ([#488](https://github.com/ome/omero-iviewer/pull/488))
+
+0.14.0 (May 2024)
+-----------------
+
+- Image loading error handling ([#474](https://github.com/ome/omero-iviewer/pull/474))
+- Tile loading improvements, spinners and error handling ([#470](https://github.com/ome/omero-iviewer/pull/470))
+- Upgrade several JavaScript dependencies
+
+0.13.0 (June 2023)
 ------------------
 
 - Add support for "mirroring" (flipping of image in X and Y axes - Thanks to [Michael Barrett](https://github.com/barrettMCW)) ([#439](https://github.com/ome/omero-iviewer/pull/439))

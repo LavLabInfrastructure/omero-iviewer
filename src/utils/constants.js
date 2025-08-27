@@ -123,6 +123,7 @@ export const REQUEST_PARAMS = {
     SHAPE: 'SHAPE',
     MAPS: 'MAPS',
     MODEL: 'M',
+    NODEDESCRIPTORS: 'NODEDESCRIPTORS',
     OMERO_VERSION: 'OMERO_VERSION',
     PLANE: 'Z',
     PROJECTION: 'P',
@@ -133,11 +134,15 @@ export const REQUEST_PARAMS = {
     ZOOM: 'ZM',
     ROI_PAGE_SIZE: 'ROI_PAGE_SIZE',
     MAX_PROJECTION_BYTES: 'MAX_PROJECTION_BYTES',
+    MAX_ACTIVE_CHANNELS: 'MAX_ACTIVE_CHANNELS',
     ROI_COLOR_PALETTE: 'ROI_COLOR_PALETTE',
     SHOW_PALETTE_ONLY: 'SHOW_PALETTE_ONLY',
     ENABLE_MIRROR: 'ENABLE_MIRROR',
     FLIP_X: 'FX',
-    FLIP_Y: 'FY'
+    FLIP_Y: 'FY',
+    FULL_PAGE: 'FULL_PAGE',
+    COLLAPSE_LEFT: 'COLLAPSE_LEFT',
+    COLLAPSE_RIGHT: 'COLLAPSE_RIGHT'
 }
 
 /**
@@ -202,52 +207,6 @@ export const PERMISSION_TOOLTIPS = {
  * @type {string}
  */
 export const LUTS_PNG_URL = '/img/luts_10.png';
-
-/**
- * luts list for pre-generated png
- * @type {Object}
- */
-export const LUTS_NAMES = [
-    '16_colors.lut',
-    '3-3-2_rgb.lut',
-    '5_ramps.lut',
-    '6_shades.lut',
-    'blue_orange_icb.lut',
-    'brgbcmyw.lut',
-    'cool.lut',
-    'cyan_hot.lut',
-    'edges.lut',
-    'fire.lut',
-    'gem.lut',
-    'glasbey.lut',
-    'glasbey_inverted.lut',
-    'glow.lut',
-    'grays.lut',
-    'green_fire_blue.lut',
-    'hilo.lut',
-    'ica.lut',
-    'ica2.lut',
-    'ica3.lut',
-    'ice.lut',
-    'magenta_hot.lut',
-    'orange_hot.lut',
-    'phase.lut',
-    'physics.lut',
-    'pup_br.lut',
-    'pup_nr.lut',
-    'rainbow_rgb.lut',
-    'red-green.lut',
-    'red_hot.lut',
-    'royal.lut',
-    'sepia.lut',
-    'smart.lut',
-    'spectrum.lut',
-    'thal.lut',
-    'thallium.lut',
-    'thermal.lut',
-    'unionjack.lut',
-    'yellow_hot.lut'
-];
 
 /**
  * the right hand panel tab names

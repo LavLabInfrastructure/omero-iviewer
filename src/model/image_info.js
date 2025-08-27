@@ -19,6 +19,7 @@
 import {noView} from 'aurelia-framework';
 import Misc from '../utils/misc';
 import Ui from '../utils/ui';
+var escapeHtml = require('escape-html')
 import {
     APP_TITLE, CHANNEL_SETTINGS_MODE, INITIAL_TYPES, IVIEWER,
     PROJECTION, REQUEST_PARAMS, WEBCLIENT, WEBGATEWAY
@@ -318,6 +319,13 @@ export default class ImageInfo {
                     this.image_id = response.id;
                 }
 
+                // validate response
+                // check for Exceptions and show error dialog.
+                const valid = this.validateImageInfo(response);
+                if (!valid) {
+                    return;
+                }
+
                 // read initial request params
                 this.initializeImageInfo(response, refresh);
                 // check for a parent id (if not well)
@@ -358,6 +366,48 @@ export default class ImageInfo {
                 Ui.showModalMessage(errMsg, 'OK');
             }
         });
+    }
+
+    /**
+     * Checks that the imgData JSON response is valid, no exceptions etc.
+     *
+     * @private
+     * @param {Object} response the response object
+     * @memberof ImageInfo
+     * @return {Boolean} True if data is valid. Also shows dialogs with errors
+     */
+    validateImageInfo(response) {
+
+        if (response.ConcurrencyException) {
+            let nds = this.context.nodedescriptors;
+            const pyramidsDisabled = nds != undefined && nds.length > 0 && !nds.includes("PixelData");
+            Ui.showModalMessage(`<p>Image is ${pyramidsDisabled ? "not" : "not currently"} viewable</p>
+                <pre>ConcurrencyException</pre>
+                <small>
+                    A pyramid of zoom levels is not available. <br>
+                    ${pyramidsDisabled ? "Pyramid generation is disabled. You will need to convert and re-import this image." :
+                     "Please contact your server Administrator if this does not resolve."} <br>
+                    See <a target="_blank" href='https://omero.readthedocs.io/en/stable/sysadmins/limitations.html#large-images'>
+                      Limitations: Large Images</a>.
+                </small>`,
+                "OK");
+            return false;
+        }
+
+        if (response.error || response.Exception) {
+            const msg = response.error || response.Exception;
+            Ui.showModalMessage(`<p>Error loading Image data</p>
+                <pre>${escapeHtml(msg)}</pre>`, "OK");
+            return false;
+        }
+
+        if (response.channels == undefined || response.channels.length === 0) {
+            Ui.showModalMessage(`<p>No channel data loaded</p>
+                <pre>${escapeHtml(JSON.stringify(response, null, 4))}</pre>`, "OK");
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -408,6 +458,9 @@ export default class ImageInfo {
         // If we've viewed this image before, apply cached settings
         this.applyCachedSettings(response);
 
+        // enforce max_active_channels
+        this.applyMaxActiveChannels(this.context.max_active_channels);
+
         // signal that we are ready
         this.ready = true;
         this.tmp_data = response;
@@ -418,6 +471,25 @@ export default class ImageInfo {
         }
         // Finally, load delta_t data
         this.requestDeltaT();
+    }
+
+    applyMaxActiveChannels(max_active_channels) {
+        // let conf = this.context.getImageConfig(this.config_id);
+        if (this.channels == null) {
+            return;
+        }
+        let channels = this.channels;
+        let activeCount = 0;
+
+        for (let i=0;i<channels.length;i++) {
+            let c = channels[i];
+            if (c.active) {
+                activeCount += 1;
+            }
+            if (activeCount > max_active_channels && c.active) {
+                c.active = false;
+            };
+        };
     }
 
     /**
@@ -637,7 +709,6 @@ export default class ImageInfo {
         $.ajax({
             url,
             success: (response) => {
-                console.log('response this.image_id', this.image_id, response.image_id);
                 this.setFormattedDeltaT(response)
             }
         });

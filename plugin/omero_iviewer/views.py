@@ -23,6 +23,7 @@ from django.urls import reverse
 from os.path import splitext
 from collections import defaultdict
 from struct import unpack
+import traceback
 
 from omeroweb.api.api_settings import API_MAX_LIMIT
 from omeroweb.decorators import login_required
@@ -49,6 +50,7 @@ MAX_LIMIT = max(1, API_MAX_LIMIT)
 ROI_PAGE_SIZE = getattr(iviewer_settings, 'ROI_PAGE_SIZE')
 ROI_PAGE_SIZE = min(MAX_LIMIT, ROI_PAGE_SIZE)
 MAX_PROJECTION_BYTES = getattr(iviewer_settings, 'MAX_PROJECTION_BYTES')
+MAX_ACTIVE_CHANNELS = getattr(iviewer_settings, 'MAX_ACTIVE_CHANNELS')
 ROI_COLOR_PALETTE = getattr(iviewer_settings, 'ROI_COLOR_PALETTE')
 SHOW_PALETTE_ONLY = getattr(iviewer_settings, 'SHOW_PALETTE_ONLY')
 ENABLE_MIRROR = getattr(iviewer_settings, 'ENABLE_MIRROR')
@@ -106,7 +108,15 @@ def index(request, iid=None, conn=None, **kwargs):
         if MAX_PROJECTION_BYTES > 0:
             max_bytes = MAX_PROJECTION_BYTES
 
+    try:
+        nodedescriptors = c.getConfigValue("omero.server.nodedescriptors")
+    except omero.SecurityViolation:
+        # nodedescriptors not supported in OMERO before 5.6.6 (Dec 2022)
+        nodedescriptors = None
+
     params['MAX_PROJECTION_BYTES'] = max_bytes
+    params['MAX_ACTIVE_CHANNELS'] = MAX_ACTIVE_CHANNELS
+    params['NODEDESCRIPTORS'] = nodedescriptors
     params['ROI_COLOR_PALETTE'] = ROI_COLOR_PALETTE
     params['SHOW_PALETTE_ONLY'] = SHOW_PALETTE_ONLY
     params['ENABLE_MIRROR'] = ENABLE_MIRROR
@@ -498,19 +508,19 @@ def image_data(request, image_id, conn=None, **kwargs):
         # Add extra parameters with units data
         # Note ['pixel_size']['x'] will have size in MICROMETER
         px = image.getPrimaryPixels().getPhysicalSizeX()
-        if (px is not None):
+        if (px is not None and 'pixel_size' in rv):
             size = image.getPixelSizeX(True)
             value = format_pixel_size_with_units(size)
             rv['pixel_size']['unit_x'] = value[0]
             rv['pixel_size']['symbol_x'] = value[1]
         py = image.getPrimaryPixels().getPhysicalSizeY()
-        if (py is not None):
+        if (py is not None and 'pixel_size' in rv):
             size = image.getPixelSizeY(True)
             value = format_pixel_size_with_units(size)
             rv['pixel_size']['unit_y'] = value[0]
             rv['pixel_size']['symbol_y'] = value[1]
         pz = image.getPrimaryPixels().getPhysicalSizeZ()
-        if (pz is not None):
+        if (pz is not None and 'pixel_size' in rv):
             size = image.getPixelSizeZ(True)
             value = format_pixel_size_with_units(size)
             rv['pixel_size']['unit_z'] = value[0]
@@ -530,8 +540,8 @@ def image_data(request, image_id, conn=None, **kwargs):
             rv['families'].append(fam.getValue())
 
         return JsonResponse(rv)
-    except Exception as image_data_retrieval_exception:
-        return JsonResponse({'error': repr(image_data_retrieval_exception)})
+    except Exception:
+        return JsonResponse({'error': traceback.format_exc()})
 
 
 @login_required()
@@ -547,12 +557,27 @@ def delta_t_data(request, image_id, conn=None, **kwargs):
     if size_t > 1:
         params = omero.sys.ParametersI()
         params.addLong('pid', image.getPixelsId())
-        z = 0
-        c = 0
         query = "from PlaneInfo as Info where"\
-            " Info.theZ=%s and Info.theC=%s and pixels.id=:pid" % (z, c)
+            " Info.theZ=0 and Info.theC=0 and pixels.id=:pid"
         info_list = conn.getQueryService().findAllByQuery(
             query, params, conn.SERVICE_OPTS)
+
+        if len(info_list) < size_t:
+            # C & Z dimensions are not always filled
+            # Remove restriction on c0 z0 to catch all timestamps
+            params = omero.sys.ParametersI()
+            params.addLong('pid', image.getPixelsId())
+            query = """
+                from PlaneInfo Info where Info.id in (
+                    select min(subInfo.id)
+                    from PlaneInfo subInfo
+                    where subInfo.pixels.id=:pid
+                    group by subInfo.theT
+                )
+            """
+            info_list = conn.getQueryService().findAllByQuery(
+                query, params, conn.SERVICE_OPTS)
+
         timemap = {}
         for info in info_list:
             t_index = info.theT.getValue()
@@ -562,9 +587,13 @@ def delta_t_data(request, image_id, conn=None, **kwargs):
                 if delta_t_unit_symbol is None:
                     # Get unit symbol for first info only
                     delta_t_unit_symbol = info.deltaT.getSymbol()
-        for t in range(image.getSizeT()):
+        for t in range(size_t):
             if t in timemap:
                 time_list.append(timemap[t])
+            else:
+                # Hopefully never gets here, but
+                # time_list length MUST match image.sizeT
+                time_list.append(0)
 
     rv['delta_t'] = time_list
     rv['delta_t_unit_symbol'] = delta_t_unit_symbol

@@ -31,7 +31,7 @@ import {
     REGIONS_STORED_SHAPES
 } from '../events/events';
 import {
-    APP_NAME, IMAGE_CONFIG_RELOAD, IVIEWER, INITIAL_TYPES, LUTS_NAMES,
+    APP_NAME, IMAGE_CONFIG_RELOAD, IVIEWER, INITIAL_TYPES,
     LUTS_PNG_URL, PLUGIN_NAME, PLUGIN_PREFIX, REQUEST_PARAMS, SYNC_LOCK,
     TABS, URI_PREFIX, WEB_API_BASE, WEBCLIENT, WEBGATEWAY
 } from '../utils/constants';
@@ -192,6 +192,14 @@ export default class Context {
      luts = new Map();
 
      /**
+      * max active channels - default is loaded from iviewer_settings
+      *
+      * @memberof Context
+      * @type {number}
+      */
+     max_active_channels = 10;
+
+     /**
       * the lookup png
       *
       * @memberof Context
@@ -242,6 +250,9 @@ export default class Context {
 
         // set up luts
         this.setUpLuts();
+
+        // load max active channels
+        this.loadMaxActiveChannels();
 
         // initialize Open_with
         OpenWith.initOpenWith();
@@ -301,42 +312,65 @@ export default class Context {
      * @memberof Context
      */
     setUpLuts() {
-        this.luts_png.url =
-            this.server + this.getPrefixedURI(WEBGATEWAY, true) + LUTS_PNG_URL;
-
-        // determine the luts png height
-        let lutsPng = new Image();
-        lutsPng.onload = (e) => {
-            this.luts_png.height = e.target.naturalHeight;
-            this.luts_png.image = lutsPng;
-            for (let [id, conf] of this.image_configs) conf.changed();
-        }
-        lutsPng.src = this.luts_png.url;
-
-        // now query the luts list
-        let server = this.server;
-        let uri_prefix =  this.getPrefixedURI(WEBGATEWAY);
         $.ajax(
-            {url : server + uri_prefix + "/luts/",
+            {url : this.server + this.getPrefixedURI(WEBGATEWAY) + "/luts/",
             success : (response) => {
-                if (typeof response !== 'object' || response === null ||
-                    !Misc.isArray(response.luts)) return;
+                // Check first whether omero-web can provides LUT dynamically
+                // and set URL accordingly
+                let is_dynamic_lut = Boolean(response.png_luts_new);
+                if (is_dynamic_lut) {
+                    this.luts_png.url =
+                        this.server + this.getPrefixedURI(WEBGATEWAY, false) + "/luts_png/";
+                } else {
+                    this.luts_png.url =
+                        this.server + this.getPrefixedURI(WEBGATEWAY, true) + LUTS_PNG_URL;
+                }
 
-                let i=0;
-                response.luts.map(
+                // determine the luts png height
+                let lutsPng = new Image();
+                lutsPng.onload = (e) => {
+                    this.luts_png.height = e.target.naturalHeight;
+                    this.luts_png.image = lutsPng;
+                    for (let [id, conf] of this.image_configs) conf.changed();
+                }
+                lutsPng.src = this.luts_png.url;
+
+                if (is_dynamic_lut) {
+                    // If it's dynamic, uses the new list instead
+                    response.png_luts = response.png_luts_new
+                }
+
+                response.luts.forEach(
                     (l) => {
-                        let isInList = LUTS_NAMES.indexOf(l.name) !== -1;
                         let mapValue =
                             Object.assign({
                                 nice_name :
                                     l.name.replace(/.lut/g, "").replace(/_/g, " "),
-                                index : isInList ? i : -1
+                                index : is_dynamic_lut ? l.png_index_new : l.png_index
                             }, l);
                         this.luts.set(mapValue.name, mapValue);
-                        if (isInList) i++;
                     });
                 for (let [id, conf] of this.image_configs) conf.changed();
             }
+        });
+    }
+
+    loadMaxActiveChannels() {
+        // query microservice endpoint...
+        let url = this.server + "/omero_ms_image_region/";
+        fetch(url, {method: "OPTIONS"})
+        .then(r => r.json())
+        .then(data => {
+            if (Number.isInteger(data.options?.maxActiveChannels)) {
+                this.max_active_channels = data.options.maxActiveChannels;
+                // in case the images loaded already (this query took longer than
+                // expected), let's update them...
+                for (let [id, conf] of this.image_configs) {
+                    conf.image_info.applyMaxActiveChannels(this.max_active_channels);
+                }
+            }
+        }).catch(() => {
+            console.log("failed to load omero_ms_image_region info");
         });
     }
 
@@ -454,6 +488,7 @@ export default class Context {
         this.max_projection_bytes = parseInt(this.initParams[REQUEST_PARAMS.MAX_PROJECTION_BYTES], 10)
                                     || (1024 * 1024 * 256);
         this.max_projection_bytes = parseInt(this.initParams[REQUEST_PARAMS.MAX_PROJECTION_BYTES], 10) || (1024 * 1024 * 256);
+        this.max_active_channels = parseInt(this.initParams[REQUEST_PARAMS.MAX_ACTIVE_CHANNELS], 10) || 10;
         let userPalette = `${this.initParams[REQUEST_PARAMS.ROI_COLOR_PALETTE]}`
         if (userPalette) {
             let arr = userPalette.match(/\[[^\[\]]*\]/g)
@@ -463,7 +498,22 @@ export default class Context {
             }
         }
         this.show_palette_only = (this.initParams[REQUEST_PARAMS.SHOW_PALETTE_ONLY] != 'False') || false
-        this.enable_mirror = (this.initParams[REQUEST_PARAMS.ENABLE_MIRROR] != 'False') || false 
+        this.enable_mirror = (this.initParams[REQUEST_PARAMS.ENABLE_MIRROR] != 'False') || false
+        // nodedescriptors can be empty string or "None" (undefined)
+        let nds = this.initParams[REQUEST_PARAMS.NODEDESCRIPTORS];
+        // initially hide left and right panels?
+        if (this.initParams[REQUEST_PARAMS.FULL_PAGE] == 'true') {
+            this.collapse_left = true;
+            this.collapse_right = true;
+        } else {
+            if (this.initParams[REQUEST_PARAMS.COLLAPSE_LEFT] == 'true') {
+                this.collapse_left = true;
+            }
+            if (this.initParams[REQUEST_PARAMS.COLLAPSE_RIGHT] == 'true') {
+                this.collapse_right = true;
+            }
+        }
+        this.nodedescriptors = nds == 'None' ? undefined : nds
     }
 
     /**
