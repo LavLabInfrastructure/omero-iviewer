@@ -15,10 +15,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.http import JsonResponse, Http404
 from django.conf import settings
-from django.urls import reverse
+from django.urls import reverse, NoReverseMatch
 
 from os.path import splitext
 from collections import defaultdict
@@ -54,6 +54,7 @@ MAX_ACTIVE_CHANNELS = getattr(iviewer_settings, 'MAX_ACTIVE_CHANNELS')
 ROI_COLOR_PALETTE = getattr(iviewer_settings, 'ROI_COLOR_PALETTE')
 SHOW_PALETTE_ONLY = getattr(iviewer_settings, 'SHOW_PALETTE_ONLY')
 ENABLE_MIRROR = getattr(iviewer_settings, 'ENABLE_MIRROR')
+REDIRECT_IVIEWER = getattr(iviewer_settings, 'REDIRECT_IVIEWER')
 
 PROJECTIONS = {
     'normal': -1,
@@ -79,13 +80,51 @@ def index(request, iid=None, conn=None, **kwargs):
         if request.GET[key]:
             params[str(key).upper()] = str(request.GET[key])
 
+    # If URL is /iviewer/?... rather than /webclient/img_detail/123/
+    # we want to redirect to the latter, to support omero.web.viewer.view config
+    if iid is None and REDIRECT_IVIEWER:
+        image_id = None
+        query_string = '&'.join([f"{key}={value}" for key, value in request.GET.items()])
+        # we want to redirect to /webclient/img_detail/123/
+        if params.get("ROI") is not None:
+            roi = conn.getQueryService().get('Roi', int(params.get("ROI")), conn.SERVICE_OPTS)
+            image_id = roi.image.id.val
+        elif params.get("SHAPE") is not None:
+            image_id, roi_id = get_image_roi_id_for_shape(conn, params.get("SHAPE"))
+        elif params.get("IMAGES") is not None:
+            image_id = int(params.get("IMAGES").split(',')[0])
+        elif params.get("WELL") is not None:
+            well = conn.getObject("Well", int(params.get("WELL")))
+            if well is not None:
+                image_ids = [well_sample.getImage().id for well_sample in well.listChildren()]
+                if len(image_ids) > 0:
+                    image_id = image_ids[0]
+                    query_string = f"images={','.join(map(str, image_ids))}"
+
+        if image_id is not None:
+            redirect_url = reverse('web_image_viewer', kwargs={'iid': image_id})
+            # add all query params to redirect url
+            # e.g. /webclient/img_detail/123/?images=123,456 will open both images
+            # and /webclient/img_detail/123/?roi=456 will open the image with the roi highlighted
+            if query_string:
+                redirect_url = f"{redirect_url}?{query_string}"
+            return redirect(redirect_url)
+        else:
+            raise Http404(f'Could not find Image, Well, ROI, or Shape for given id(s)')
+
     # set interpolation default
     server_settings = request.session.get('server_settings', {})
-    params['INTERPOLATE'] = server_settings.get('interpolate_pixels', True)
+    viewer_settings = server_settings.get('viewer', {})
 
+    params['INTERPOLATE'] = viewer_settings.get('interpolate_pixels', True)
     # we add the (possibly prefixed) uris
     params['WEBGATEWAY'] = reverse('webgateway')
     params['WEBCLIENT'] = reverse('webindex')
+    try:
+        params['OMERO_FIGURE'] = reverse('figure_index')
+    except NoReverseMatch:
+        # omero-figure not installed
+        pass
     params['WEB_API_BASE'] = reverse(
         'api_base', kwargs={'api_version': WEB_API_VERSION})
     if settings.FORCE_SCRIPT_NAME is not None:
@@ -481,7 +520,8 @@ def roi_image_data(request, obj_type, obj_id, conn=None, **kwargs):
     """ Get image_data for image linked to ROI """
     image_id = None
     if obj_type == 'roi':
-        roi = conn.getQueryService().get('Roi', int(obj_id))
+        roi = conn.getQueryService().get('Roi', int(obj_id),
+                                         conn.SERVICE_OPTS)
         if roi:
             image_id = roi.image.id.val
     elif obj_type == 'shape':
@@ -502,6 +542,8 @@ def image_data(request, image_id, conn=None, **kwargs):
     try:
         rv = imageMarshal(image)
 
+        rv['meta']['groupId'] = image.getDetails().getGroup().id
+
         # set roi count
         rv['roi_count'] = image.getROICount()
 
@@ -513,18 +555,22 @@ def image_data(request, image_id, conn=None, **kwargs):
             value = format_pixel_size_with_units(size)
             rv['pixel_size']['unit_x'] = value[0]
             rv['pixel_size']['symbol_x'] = value[1]
+            # id e.g. 'MICROMETER' is used for export to OMERO.figure
+            rv['pixel_size']['unit_id_x'] = value[2]
         py = image.getPrimaryPixels().getPhysicalSizeY()
         if (py is not None and 'pixel_size' in rv):
             size = image.getPixelSizeY(True)
             value = format_pixel_size_with_units(size)
             rv['pixel_size']['unit_y'] = value[0]
             rv['pixel_size']['symbol_y'] = value[1]
+            rv['pixel_size']['unit_id_y'] = value[2]
         pz = image.getPrimaryPixels().getPhysicalSizeZ()
         if (pz is not None and 'pixel_size' in rv):
             size = image.getPixelSizeZ(True)
             value = format_pixel_size_with_units(size)
             rv['pixel_size']['unit_z'] = value[0]
             rv['pixel_size']['symbol_z'] = value[1]
+            rv['pixel_size']['unit_id_z'] = value[2]
 
         delta_t_unit_symbol = None
         rv['delta_t_unit_symbol'] = delta_t_unit_symbol
@@ -626,11 +672,11 @@ def format_pixel_size_with_units(value):
     length = value.getValue()
     unit = str(value.getUnit())
     if unit == "MICROMETER":
-        unit = lengthunit(length)
+        symbol = lengthunit(length)
         length = lengthformat(length)
     else:
-        unit = value.getSymbol()
-    return (length, unit)
+        symbol = value.getSymbol()
+    return (length, symbol, unit)
 
 
 @login_required()
@@ -913,3 +959,108 @@ def shape_stats(request, conn=None, **kwargs):
         return JsonResponse({"error": api_exception.message})
     except Exception as stats_call_exception:
         return JsonResponse({"error": repr(stats_call_exception)})
+
+
+def marshal_tag(annotation, link):
+    ann = {}
+    ann["textValue"] = unwrap(annotation.textValue)
+    ann["id"] = annotation.id.val
+    ann["ns"] = unwrap(annotation.ns)
+    ann["name"] = unwrap(annotation.name)
+    ann["description"] = unwrap(annotation.description)
+    ann["owner"] = {"id": annotation.details.owner.id.val}
+    ann["link"] = {}
+    ann["link"]["id"] = link.id.val
+    ann["link"]["owner"] = {"id": link.details.owner.id.val}
+    if link.parent.isLoaded():
+        ann["link"]["parent"] = {
+            "id": link.parent.id.val,
+            "class": link.parent.__class__.__name__,
+        }
+        p = link.details.permissions
+        ann["link"]["permissions"] = {
+            "canDelete": p.canDelete(),
+            "canAnnotate": p.canAnnotate(),
+            "canLink": p.canLink(),
+            "canEdit": p.canEdit(),
+        }
+    return ann
+
+
+def _marshal_exp(experimenter):
+    exp = {}
+    exp["id"] = experimenter.id.val
+    exp["omeName"] = experimenter.omeName.val
+    exp["firstName"] = unwrap(experimenter.firstName)
+    exp["lastName"] = unwrap(experimenter.lastName)
+    return exp
+
+
+@login_required()
+def link_annotations(request, conn=None, **kwargs):
+    errors = []
+    if request.method == 'DELETE':
+        # DELETE /link_annotations/?link=1&link=2
+        # remove the link between the Tag and the ROI
+        link_ids = request.GET.getlist('link')
+        if not link_ids:
+            return JsonResponse(
+                {"errors": ["Need to specify link(s)"]})
+        try:
+            conn.deleteObjects("RoiAnnotationLink", link_ids, wait=True)
+        except Exception as ex:
+            errors.append(str(ex))
+        return JsonResponse({
+            "link_ids": link_ids,
+            "errors": errors
+        })
+
+    if not request.method == 'POST':
+        # GET /link_annotations/?roi=1&roi=2
+        # load Tags... -> {'1':{'tags':[{'id':56, 'textValue':'myTag'}], '2':{'tags':[]}}}
+        roi_ids = request.GET.getlist('roi')
+        exps = {}
+        tags = []
+        # for ann in roi.listAnnotations():
+        for link in conn.getAnnotationLinks("roi", parent_ids=roi_ids):
+            ann = link.getChild()._obj
+            link = link._obj
+            if not isinstance(ann, omero.model.TagAnnotation):
+                continue
+            d = marshal_tag(ann, link)
+            tags.append(d)
+            exps[link.details.owner.id.val] = link.details.owner
+            exps[ann.details.owner.id.val] = ann.details.owner
+
+        exps = [_marshal_exp(exp) for exp in exps.values()]
+        return JsonResponse({"data": tags, "experimenters": exps})
+
+    ann_ids = request.POST.getlist('annotation')
+    roi_ids = request.POST.getlist('roi')
+
+    json_data = json.loads(request.body)
+    ann_ids = json_data["annotations"]
+    roi_ids = json_data["rois"]
+
+    links = 0
+    added = []
+    for roi_id in roi_ids:
+        roi = conn.getObject("Roi", roi_id)
+        if roi is None:
+            errors.append(f"ROI: {roi_id} not found.")
+            continue
+
+        for ann_id in ann_ids:
+            ann = conn.getObject("Annotation", ann_id)
+            if ann is None:
+                errors.append(f"Tag: {ann_id} not found.")
+                continue
+            
+            try:
+                roi.linkAnnotation(ann)
+                links += 1
+                added.append({"id": ann.id, "textValue": ann.textValue})
+            except Exception as ex:
+                errors.append(str(ex))
+
+    return JsonResponse({"added": added, "ann_ids": ann_ids, "roi_ids": roi_ids, "message": f'{links} Annotations linked to rois!', "errors": errors})

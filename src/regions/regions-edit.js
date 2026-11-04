@@ -18,7 +18,6 @@
 
 // js
 import Context from '../app/context';
-import Misc from '../utils/misc';
 import {Utils} from '../utils/regions';
 import Ui from '../utils/ui';
 import {Converters} from '../utils/converters';
@@ -31,7 +30,6 @@ import {
     EventSubscriber
 } from '../events/events';
 import {inject, customElement, bindable, BindingEngine} from 'aurelia-framework';
-import {spectrum} from 'spectrum-colorpicker';
 
 /**
  * Represents the regions section in the right hand panel
@@ -62,7 +60,7 @@ export default class RegionsEdit extends EventSubscriber {
         { key: 'V', func: this.pasteShapes },                     // ctrl - v
         { key: 'Delete', func: this.deleteShapes, ctrl: false},   // DELETE
         { key: 'Del', func: this.deleteShapes, ctrl: false},      // DEL IE
-        { key: 'Backspace', func: this.deleteShapes, ctrl: false} // DEL MAC
+        { key: 'Backspace', func: this.deleteShapes, ctrl: false}, // DEL MAC
     ];
 
     /**

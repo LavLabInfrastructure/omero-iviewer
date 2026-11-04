@@ -18,7 +18,7 @@
 from omero_iviewer.utils import get_version
 
 
-VERSION = (0, 16, 0)
+VERSION = (0, 19, 1)
 RC = "dev"
 
 
